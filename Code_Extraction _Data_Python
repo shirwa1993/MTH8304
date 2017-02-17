@@ -1,0 +1,70 @@
+import zipline
+from zipline.api import (add_history, 
+                         history, 
+                         set_slippage, 
+                         slippage,
+                         set_commission, 
+                         commission, 
+                         order_target_percent)
+
+from zipline import TradingAlgorithm
+
+
+def initialize(context):
+    '''
+    Called once at the very beginning of a backtest (and live trading). 
+    Use this method to set up any bookkeeping variables.
+    
+    The context object is passed to all the other methods in your algorithm.
+
+    Parameters
+
+    context: An initialized and empty Python dictionary that has been 
+             augmented so that properties can be accessed using dot 
+             notation as well as the traditional bracket notation.
+    
+    Returns None
+    '''
+    # Register history container to keep a window of the last 100 prices.
+    add_history(100, '1d', 'price')
+    # Turn off the slippage model
+    set_slippage(slippage.FixedSlippage(spread=0.0))
+    # Set the commission model (Interactive Brokers Commission)
+    set_commission(commission.PerShare(cost=0.01, min_trade_cost=1.0))
+    context.tick = 0
+    
+def handle_data(context, data):
+    '''
+    Called when a market event occurs for any of the algorithm's 
+    securities. 
+
+    Parameters
+
+    data: A dictionary keyed by security id containing the current 
+          state of the securities in the algo's universe.
+
+    context: The same context object from the initialize function.
+             Stores the up to date portfolio as well as any state 
+             variables defined.
+
+    Returns None
+    '''
+    #Allow history to accumulate 100 days of prices before trading
+    # and rebalance every day thereafter.
+    context.tick += 1
+    if context.tick < 100:
+        return
+    # Get rolling window of past prices and compute returns
+    prices = history(100, '1d', 'price').dropna()
+    returns = prices.pct_change().dropna()
+    try:
+        # Perform Markowitz-style portfolio optimization
+        weights, _, _ = optimal_portfolio(returns.T)
+        # Rebalance portfolio accordingly
+        for stock, weight in zip(prices.columns, weights):
+            order_target_percent(stock, weight)
+    except ValueError as e:
+        # Sometimes this error is thrown
+        # ValueError: Rank(A) < p or Rank([P; A; G]) < n
+        pass
+        
